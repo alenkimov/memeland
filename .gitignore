@@ -1,0 +1,9 @@
+.idea
+.venv
+dist
+log
+data
+input
+output
+config/*
+!config/.default

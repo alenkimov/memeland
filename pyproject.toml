@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "memeland"
+version = "0.1.0"
+description = ""
+authors = ["Alen Akimov <alen.kimov@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+better-automation = "^0.6.0"
+better-web3 = "^3.0.5"
+better-proxy = "^0.2.1"
+aiohttp = "^3.8.5"
+questionary = "^2.0.1"
+loguru = "^0.7.2"
+pandas = "^2.1.2"
+pydantic = "^2.4.2"
+unicaps = "^1.2.2"
+beautifulsoup4 = "^4.12.2"
+tls-client = "^0.2.2"
+tinydb = "^4.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
