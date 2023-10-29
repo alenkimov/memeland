@@ -10,7 +10,9 @@ from bot.paths import LOG_DIR, TOKENS_TXT, ACCOUNTS_JSON
 from bot.config import CONFIG
 from bot.author import TG_LINK
 from bot.account import extract_or_create_accounts, Account
-from bot.scripts import auth_accounts, link_wallets
+from bot.scripts import auth_accounts, link_wallets, complete_tasks
+from bot.output import make_output
+from bot.follower import follow_accounts
 
 PROJECT_INFO = load_toml('pyproject.toml')
 PROJECT_VERSION = PROJECT_INFO['tool']['poetry']['version']
@@ -50,8 +52,11 @@ async def main():
 
     modules = {
         'Exit': None,
+        '[0] Follow each other': follow_accounts,
         '[1] Auth accounts': auth_accounts,
         '[2] Link wallets': link_wallets,
+        '[3] Complete tasks': complete_tasks,
+        'Make output': make_output,
     }
 
     while True:

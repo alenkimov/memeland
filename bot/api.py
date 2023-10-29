@@ -1,9 +1,6 @@
 import aiohttp
 from better_automation.http import BetterHTTPClient
-from multidict import MultiDict
 from yarl import URL
-from bot.logger import logger
-import tls_client
 
 
 class MemelandAPIError(Exception):
@@ -13,10 +10,6 @@ class MemelandAPIError(Exception):
         super().__init__(f"(code={self.code}) {self.message}")
 
 
-class MaxAttemptsReached(Exception):
-    pass
-
-
 class MemelandAPI(BetterHTTPClient):
     DEFAULT_HEADERS = {
         'origin': 'https://www.memecoin.org',
@@ -24,25 +17,10 @@ class MemelandAPI(BetterHTTPClient):
     }
 
     def __init__(self, session: aiohttp.ClientSession, auth_token: str = None, **kwargs):
-        self._useragent = None
-        self._tls_session = tls_client.Session(
-            client_identifier="chrome112",
-            random_tls_extension_order=True,
-        )
-        self._tls_session.headers.update(self.DEFAULT_HEADERS)
         super().__init__(session, headers=self.DEFAULT_HEADERS, **kwargs)
         self._auth_token = None
         if auth_token:
             self.set_auth_token(auth_token)
-
-    @property
-    def useragent(self) -> str | None:
-        return self._useragent
-
-    def set_useragent(self, useragent: str):
-        self._useragent = useragent
-        self._tls_session.headers.update({'user-agent': useragent})
-        super().set_useragent(useragent)
 
     @property
     def auth_token(self) -> str | None:
@@ -55,19 +33,8 @@ class MemelandAPI(BetterHTTPClient):
     async def request(self, method: str, url, **kwargs):
         response = await super().request(method, url, **kwargs)
 
-        if response.status in (409, ):
+        if response.status in (409, 401, 429):
             response_json = await response.json()
-            code = response_json["status"]
-            message = response_json["error"]
-            raise MemelandAPIError(code, message)
-
-        return response
-
-    def tls_request(self, method: str, url, **kwargs):
-        response = self._tls_session.execute_request(method, url, **kwargs)
-
-        if response.status_code in (409, ):
-            response_json = response.json()
             code = response_json["status"]
             message = response_json["error"]
             raise MemelandAPIError(code, message)
@@ -104,18 +71,6 @@ class MemelandAPI(BetterHTTPClient):
         response = await self.request("GET", url, params=params, allow_redirects=False)
         return URL(response.headers['location'])
 
-    async def request_bind_data(self, max_attempts: int = 50) -> MultiDict | None:
-        attempt = 1
-        while attempt < max_attempts:
-            logger.debug(f"Запрашиваю ссылку для привязки Твиттера (попытка {attempt})...")
-            url = await self.request_oauth_url()
-            if "client_id" in url.query:
-                return url.query
-            attempt += 1
-        raise MaxAttemptsReached(f"Не удалось запросить ссылку для привязки твиттер-аккаунта:"
-                                 f" достигнуто максимальное количество попыток ({max_attempts})."
-                                 f" Попробуйте позже")
-
     async def request_auth_token(self, bind_code: str) -> str:
         url = "https://memefarm-api.memecoin.org/user/twitter-auth"
         payload = {
@@ -126,9 +81,9 @@ class MemelandAPI(BetterHTTPClient):
         response_json = await response.json()
         return response_json["accessToken"]
 
-        # response = self.tls_request("POST", url, json=payload)
-        # return response.json()["accessToken"]
+    async def perform_task(self, endpoint: str, payload: dict = None) -> dict:
+        url = f'https://memefarm-api.memecoin.org/user/verify/{endpoint}'
+        response = await self.request("POST", url, json=payload)
+        response_json = await response.json()
+        return response_json
 
-    async def auth(self, bind_code: str):
-        auth_token = await self.request_auth_token(bind_code)
-        self.set_auth_token(auth_token)

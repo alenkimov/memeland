@@ -2,108 +2,18 @@ from typing import Iterable
 
 import aiohttp
 
-from bot.account import Account, TwitterStatus
+from bot.account import Account
 from bot.api import MemelandAPI
 from bot.auth import authenticated_memeland, authenticated_twitter, auth_memeland
 from bot.process import process_accounts_with_session
 from bot.logger import logger, LoggingLevel
 from bot.config import CONFIG
-from bot.paths import ACCOUNTS_JSON
-
-
-async def _ensure_twitter_info(
-        session: aiohttp.ClientSession,
-        account: Account,
-        logging_level: LoggingLevel = "DEBUG",
-):
-    if not account.twitter_info:
-        async with authenticated_twitter(session, account) as twitter:
-            twitter_username = await twitter.request_username()
-            account.twitter_info = await twitter.request_user_info(twitter_username)
-            account.save(ACCOUNTS_JSON)
-            logger.log(logging_level, f"{account} Информация о Твиттер аккаунте успешно запрошена")
-
-
-async def _request_memeland_info(
-        session: aiohttp.ClientSession,
-        account: Account,
-        logging_level: LoggingLevel = "DEBUG",
-):
-    async with authenticated_memeland(session, account) as memeland:
-        account.memeland_info = await memeland.request_info()
-        account.tasks = await memeland.request_tasks()
-        account.save(ACCOUNTS_JSON)
-        logger.log(logging_level, f"{account} Информация об аккаунте Memeland и тасках успешно запрошена")
-
-
-async def _ensure_memeland_info(
-        session: aiohttp.ClientSession,
-        account: Account,
-        logging_level: LoggingLevel = "DEBUG",
-):
-    if not account.memeland_info or not account.tasks:
-        await _request_memeland_info(session, account, logging_level)
-
-
-def ensure_twitter_info(func):
-    async def wrapper(accounts: Iterable[Account]):
-        await process_accounts_with_session(accounts, _ensure_twitter_info)
-        await func(accounts)
-
-    return wrapper
-
-
-def ensure_memeland_info(func):
-    async def wrapper(accounts: Iterable[Account]):
-        await process_accounts_with_session(accounts, _ensure_memeland_info)
-        await func(accounts)
-
-    return wrapper
-
-
-def filter_accounts(
-        minimum_age: int = None,
-        minimum_followers_count: int = None,
-        twitter_statuses_blacklist: Iterable[TwitterStatus] = None,
-        account_is_authed: bool = None,
-        wallet_is_linked: bool = None,
-):
-    def decorator(func):
-        async def wrapper(accounts: Iterable[Account]):
-            filtered_accounts = []
-            for account in accounts:
-                is_filtered = False
-
-                if twitter_statuses_blacklist and account.twitter_status in twitter_statuses_blacklist:
-                    logger.warning(f"{account} Twitter status {account.twitter_info} is blacklisted")
-                    is_filtered = True
-
-                if minimum_followers_count and account.followers_count < minimum_followers_count:
-                    logger.warning(f"{account} {account.followers_count} из {minimum_followers_count} подписчиков")
-                    if not CONFIG.IGNORE_WARNINGS:
-                        is_filtered = True
-
-                if minimum_age and account.twitter_account_age < minimum_age:
-                    logger.warning(f"{account} Возраст аккаунта: {account.twitter_account_age} дней")
-                    if not CONFIG.IGNORE_WARNINGS:
-                        is_filtered = True
-
-                if account_is_authed is not None and account.is_authed != account_is_authed:
-                    # logger.warning(f"{account} Account authentication status mismatch")
-                    is_filtered = True
-
-                if wallet_is_linked is not None and account.wallet_is_linked != wallet_is_linked:
-                    # logger.warning(f"{account} Wallet linking status mismatch")
-                    is_filtered = True
-
-                if not is_filtered:
-                    filtered_accounts.append(account)
-
-            await func(filtered_accounts)
-
-        return wrapper
-
-    return decorator
+from bot.filters import (
+    filter_accounts_by_twitter_info,
+    filter_accounts_by_memeland_info,
+    filter_accounts_by_token,
+)
+from bot.update_info import update_memeland_info
 
 
 async def _auth_account(
@@ -112,8 +22,8 @@ async def _auth_account(
         logging_level: LoggingLevel = "SUCCESS",
 ):
     async with authenticated_twitter(session, account) as twitter:
-        await auth_memeland(session, twitter, account, logging_level)
-    await _request_memeland_info(session, account)
+        memeland = await auth_memeland(session, twitter, account, logging_level)
+        await update_memeland_info(memeland, account)
 
 
 async def _link_wallet(
@@ -144,21 +54,19 @@ async def _link_wallet(
 
         if status == "reward_already_claimed":
             logger.warning(f"{account} Кошелек уже привязан")
-            await _request_memeland_info(session, account)
+            await update_memeland_info(memeland, account)
             return
 
         if status == "success":
             logger.log(logging_level, f"{account} Кошелек успешно привязан")
-            await _request_memeland_info(session, account)
+            await update_memeland_info(memeland, account)
             return
 
         logger.log(logging_level, f"{account} {status}")
 
 
-@ensure_twitter_info
-@filter_accounts(
-    account_is_authed=False,
-    twitter_statuses_blacklist=["BANNED", "LOCKED"],
+@filter_accounts_by_token("memeland", presence=False)
+@filter_accounts_by_twitter_info(
     minimum_age=CONFIG.MINIMUM_ACCOUNT_AGE_IN_DAYS,
     minimum_followers_count=3,
 )
@@ -166,8 +74,54 @@ async def auth_accounts(accounts: Iterable[Account]):
     await process_accounts_with_session(accounts, _auth_account)
 
 
-@filter_accounts(account_is_authed=True)
-@ensure_memeland_info
-@filter_accounts(wallet_is_linked=False)
+@filter_accounts_by_token("memeland", presence=True)
+@filter_accounts_by_memeland_info(wallet_is_linked=False)
 async def link_wallets(accounts: Iterable[Account]):
     await process_accounts_with_session(accounts, _link_wallet)
+
+
+async def _perform_task(
+        memeland: MemelandAPI,
+        account: Account,
+        task_id: str,
+        endpoint: str,
+        payload: dict = None,
+) -> None:
+    response_json = await memeland.perform_task(endpoint, payload=payload)
+    status = response_json["status"]
+    if status == "success":
+        logger.success(f"{account} Успешно выполнил таск {task_id}")
+    else:
+        logger.warning(f"{account} Не удалось выполнить таск {task_id}: {status}")
+
+
+async def _complete_tasks(
+        session: aiohttp.ClientSession,
+        account: Account,
+):
+    async with authenticated_memeland(session, account) as memeland:
+        for task in account.tasks["tasks"] + account.tasks["timely"]:
+            is_completed: bool = task["completed"]
+            task_id: str = task["id"]
+
+            if not is_completed:
+                if task_id.startswith("follow"):
+                    payload = {'followId': task_id}
+                    await _perform_task(memeland, account, task_id, "twitter-follow", payload)
+                elif task_id == "goingToBinance":
+                    await _perform_task(memeland, account, task_id, "daily-task/goingToBinance")
+                elif task_id == "shareMessage":
+                    await _perform_task(memeland, account, task_id, "share-message")
+                elif task_id == "inviteCode" and CONFIG.NFT:
+                    payload = {'code': CONFIG.NFT}
+                    await _perform_task(memeland, account, task_id, "invite-code", payload)
+                elif task_id == "twitterName" and "❤️ Memecoin" in account.memeland_info["twitter"]["username"]:
+                    await _perform_task(memeland, account, task_id, "twitter-name")
+
+        await update_memeland_info(memeland, account)
+
+
+@filter_accounts_by_token("memeland", presence=True)
+@filter_accounts_by_memeland_info(wallet_is_linked=True)
+async def complete_tasks(accounts: Iterable[Account]):
+    await process_accounts_with_session(accounts, _complete_tasks)

@@ -21,6 +21,7 @@ for dir in DIRS:
 
 TOKENS_TXT = INPUT_DIR / "auth_tokens.txt"
 ACCOUNTS_JSON = DATA_DIR / "accounts.json"
+REGISTERED_TXT = OUTPUT_DIR / "good.txt"
 
 FILES = (TOKENS_TXT, ACCOUNTS_JSON)
 for file in FILES:

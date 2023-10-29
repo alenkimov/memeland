@@ -8,7 +8,7 @@ from better_web3 import Wallet
 from tinydb import TinyDB, Query
 
 
-TwitterStatus = Literal["BANNED", "LOCKED", "GOOD"]
+TwitterStatus = Literal["UNKNOWN", "BAD_TOKEN", "BANNED", "LOCKED", "GOOD"]
 
 
 class Account:
@@ -27,7 +27,7 @@ class Account:
         self.memeland_info: dict | None = None
         self.tasks: dict | None = None
         self.twitter_info: dict | None = None
-        self.twitter_status: TwitterStatus = "GOOD"
+        self.twitter_status: TwitterStatus = "UNKNOWN"
 
     @property
     def short_twitter_auth_token(self) -> str:
@@ -37,16 +37,7 @@ class Account:
 
     def __str__(self):
         additional_info = f'[{self.number:04}]' if self.number is not None else ''
-        if self.proxy:
-            additional_info += f' {self.proxy}'
-
         return f"{additional_info} [{self.short_twitter_auth_token}]"
-
-    def info_message(self) -> str:
-        info = str(self)
-        service_names = ', '.join(self.auth_tokens.keys())
-        info += f"\n\tAuth tokens: {service_names}"
-        return info
 
     def save(self, db_path: str | Path):
         save_account(self, db_path)
@@ -70,10 +61,6 @@ class Account:
         if self.twitter_info:
             return self.twitter_info['legacy']['followers_count']
         return None
-
-    @property
-    def is_authed(self) -> bool:
-        return "memeland" in self.auth_tokens
 
     @property
     def wallet_is_linked(self) -> bool | None:

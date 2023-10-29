@@ -6,18 +6,13 @@ import aiohttp
 from aiohttp_socks import ProxyConnector
 from better_automation.process import bounded_gather
 from better_proxy import Proxy
-from better_web3 import Chain
-from better_web3 import Wallet
-from eth_typing import HexStr
-from web3.contract.async_contract import AsyncContractFunction
-from web3.types import Wei
 
 from bot.config import CONFIG
 from bot.logger import logger, LoggingLevel
 from bot.account import Account
 from bot.paths import ACCOUNTS_JSON
 
-from bot.api import MaxAttemptsReached, MemelandAPIError
+from bot.api import MemelandAPIError
 from better_automation.twitter.errors import HTTPException as TwitterException
 
 
@@ -38,10 +33,16 @@ async def process_account_with_session(
     try:
         await fn(session, account)
     except TwitterException as e:
-        if any(code in e.api_codes for code in (32, 326, 64)):
+        if any(code in e.api_codes for code in (32, )):
+            account.twitter_status = "BAD_TOKEN"
+            account.save(ACCOUNTS_JSON)
+        if any(code in e.api_codes for code in (64, )):
             account.twitter_status = "BANNED"
             account.save(ACCOUNTS_JSON)
-    except (MaxAttemptsReached, MemelandAPIError) as e:
+        if any(code in e.api_codes for code in (326, )):
+            account.twitter_status = "LOCKED"
+            account.save(ACCOUNTS_JSON)
+    except MemelandAPIError as e:
         logger.warning(f"{account} {e}")
         return
     except Exception as e:

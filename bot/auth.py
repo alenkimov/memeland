@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 import aiohttp
 from better_automation import TwitterAPI
+
 from bot.api import MemelandAPI
 
 from bot.account import Account
@@ -30,7 +31,16 @@ async def auth_memeland(
     memeland = MemelandAPI(session, useragent=account.useragent)
 
     if "memeland" not in account.auth_tokens:
-        bind_data = await memeland.request_bind_data()
+        bind_data = {
+            'response_type': 'code',
+            'client_id': 'ZXh0SU5iS1pwTE5xclJtaVNNSjk6MTpjaQ',
+            'redirect_uri': 'https://www.memecoin.org/farming',
+            'scope': 'users.read tweet.read offline.access',
+            'state': 'state',
+            'code_challenge': 'challenge',
+            'code_challenge_method': 'plain'
+        }
+
         bind_code = await twitter.bind_app(**bind_data)
         auth_token = await memeland.request_auth_token(bind_code)
         account.auth_tokens["memeland"] = auth_token
