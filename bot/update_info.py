@@ -30,8 +30,7 @@ async def update_twitter_status(
             account.twitter_status = "LOCKED"
             account.save(ACCOUNTS_JSON)
 
-    logger.log(logging_level, f"{account} Тестовая подписка успешна."
-                              f" Статус аккаунта: {account.twitter_status}")
+    logger.log(logging_level, f"{account} Статус Твиттер аккаунта: {account.twitter_status}")
 
 
 async def update_twitter_info(

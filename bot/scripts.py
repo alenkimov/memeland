@@ -14,6 +14,7 @@ from bot.filters import (
     filter_accounts_by_token,
 )
 from bot.update_info import update_memeland_info
+from bot.api import MemelandAPIError
 
 
 async def _auth_account(
@@ -68,7 +69,7 @@ async def _link_wallet(
 @filter_accounts_by_token("memeland", presence=False)
 @filter_accounts_by_twitter_info(
     minimum_age=CONFIG.MINIMUM_ACCOUNT_AGE_IN_DAYS,
-    minimum_followers_count=3,
+    minimum_followers_count=CONFIG.MINIMUM_FOLLOWERS_COUNT,
 )
 async def auth_accounts(accounts: Iterable[Account]):
     await process_accounts_with_session(accounts, _auth_account)
@@ -91,6 +92,10 @@ async def _perform_task(
     status = response_json["status"]
     if status == "success":
         logger.success(f"{account} Успешно выполнил таск {task_id}")
+        await update_memeland_info(memeland, account)
+    elif status in ("reward_already_claimed", "user_already_invited"):
+        logger.info(f"{account} Таск {task_id} уже выполнен")
+        await update_memeland_info(memeland, account)
     else:
         logger.warning(f"{account} Не удалось выполнить таск {task_id}: {status}")
 
@@ -99,29 +104,27 @@ async def _complete_tasks(
         session: aiohttp.ClientSession,
         account: Account,
 ):
+    incomplete_tasks = [task for task in account.tasks["tasks"] + account.tasks["timely"] if not task["completed"]]
+
+    if not incomplete_tasks:
+        return
+
     async with authenticated_memeland(session, account) as memeland:
-        for task in account.tasks["tasks"] + account.tasks["timely"]:
-            is_completed: bool = task["completed"]
+        for task in incomplete_tasks:
             task_id: str = task["id"]
 
-            if not is_completed:
-                if task_id.startswith("follow"):
-                    payload = {'followId': task_id}
-                    await _perform_task(memeland, account, task_id, "twitter-follow", payload)
-                elif task_id == "goingToBinance":
-                    await _perform_task(memeland, account, task_id, "daily-task/goingToBinance")
-                elif task_id == "shareMessage":
-                    await _perform_task(memeland, account, task_id, "share-message")
-                elif task_id == "inviteCode" and CONFIG.NFT:
-                    payload = {'code': CONFIG.NFT}
-                    await _perform_task(memeland, account, task_id, "invite-code", payload)
-                elif task_id == "twitterName" and "❤️ Memecoin" in account.memeland_info["twitter"]["username"]:
-                    await _perform_task(memeland, account, task_id, "twitter-name")
-
-        await update_memeland_info(memeland, account)
+            if task_id.startswith("follow"):
+                payload = {'followId': task_id}
+                await _perform_task(memeland, account, task_id, "twitter-follow", payload)
+            elif task_id == "shareMessage":
+                await _perform_task(memeland, account, task_id, "share-message")
+            elif task_id == "inviteCode" and CONFIG.NFT:
+                payload = {'code': CONFIG.NFT}
+                await _perform_task(memeland, account, task_id, "invite-code", payload)
+            elif task_id == "twitterName" and "❤️ Memecoin" in account.memeland_info["twitter"]["username"]:
+                await _perform_task(memeland, account, task_id, "twitter-name")
 
 
 @filter_accounts_by_token("memeland", presence=True)
-@filter_accounts_by_memeland_info(wallet_is_linked=True)
 async def complete_tasks(accounts: Iterable[Account]):
     await process_accounts_with_session(accounts, _complete_tasks)

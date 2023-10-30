@@ -99,7 +99,6 @@ def save_account(account: Account, db_path: str | Path):
 def extract_or_create_accounts(
         twitter_auth_tokens: Iterable[str],
         db_path: str | Path,
-        proxy: Proxy = None,
 ) -> list[Account]:
     db = TinyDB(db_path)
     DBAccount = Query()
@@ -110,7 +109,6 @@ def extract_or_create_accounts(
         wallet = Wallet.from_key(account_data['wallet']['private_key']) if account_data else Wallet.generate()
         account = Account(
             wallet=wallet,
-            proxy=proxy,
             number=i
         )
         account.auth_tokens = account_data['auth_tokens'] if account_data else {'twitter': token}

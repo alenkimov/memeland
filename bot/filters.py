@@ -152,7 +152,7 @@ def filter_accounts_by_token(token_name: str, *, presence: bool):
 
 
 def filter_accounts_by_memeland_info(
-        wallet_is_linked: bool = None,
+        wallet_is_linked: bool = False,
 ):
     def decorator(func):
 
@@ -162,7 +162,7 @@ def filter_accounts_by_memeland_info(
             for account in accounts:
                 is_filtered = False
 
-                if wallet_is_linked is not None and account.wallet_is_linked != wallet_is_linked:
+                if account.wallet_is_linked != wallet_is_linked:
                     is_filtered = True
 
                 if not is_filtered:

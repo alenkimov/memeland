@@ -1,5 +1,5 @@
 import asyncio
-from random import randrange
+from collections import defaultdict
 from typing import Iterable, Callable
 
 import aiohttp
@@ -28,7 +28,6 @@ async def process_account_with_session(
         session: aiohttp.ClientSession,
         account: Account,
         fn: Callable,
-        ignore_errors: bool = False,
 ):
     try:
         await fn(session, account)
@@ -43,42 +42,80 @@ async def process_account_with_session(
             account.twitter_status = "LOCKED"
             account.save(ACCOUNTS_JSON)
     except MemelandAPIError as e:
+        if e.code == 429:
+            raise
         logger.warning(f"{account} {e}")
         return
-    except Exception as e:
-        logger.error(f"{account} Непредвиденная ошибка: {e}")
-        if ignore_errors:
-            return
-        else:
-            raise
 
 
-async def _process_accounts_with_session(
-        accounts: Iterable[Account],
+async def process_account_with_proxy(
+        account: Account,
         fn: Callable,
         *,
         proxy: Proxy = None,
 ):
-    connector = ProxyConnector.from_url(proxy) if proxy else aiohttp.TCPConnector()
+    connector = ProxyConnector.from_url(proxy.as_url) if proxy else aiohttp.TCPConnector()
     async with aiohttp.ClientSession(connector=connector) as session:
-        accounts_len = len(list(accounts))
-        for account in accounts:
-            await process_account_with_session(session, account, fn)
-            if accounts_len > 1 and sum(CONFIG.DELAY_RANGE) > 0:
-                await sleep(account, randrange(*CONFIG.DELAY_RANGE), logging_level="INFO")
+        await process_account_with_session(session, account, fn)
 
 
 async def process_accounts_with_session(
         accounts: Iterable[Account],
         fn: Callable,
-        max_tasks: int = None,
+        *,
+        max_tasks: int = 1,
+        max_tasks_per_proxy: int = 1,
+        default_proxy: Proxy = None,
 ):
-    proxy_to_accounts: dict[Proxy: list[accounts]] = {}
+    """
+    :param accounts: Аккаунты.
+    :param fn: Асинхронная функция для обработки аккаунта.
+     Должна принимать первым параметров сессию aiohttp.ClientSession, а вторым - аккаунт.
+    :param max_tasks: Максимальное количество одновременно обрабатываемых аккаунтов.
+    :param max_tasks_per_proxy: Ограничивает максимальное количество одновременно
+     обрабатываемых аккаунтов на одном и том же прокси.
+    :param default_proxy: Если у аккаунта отсутствует прокси,
+     то будет применено прокси по умолчанию.
+    """
+
+    # TODO Осторожно, костыль
+    max_tasks = CONFIG.MAX_TASKS
+    max_tasks_per_proxy = CONFIG.MAX_TASKS_PER_PROXY
+    default_proxy = Proxy.from_str(CONFIG.DEFAULT_PROXY)
+
+    proxy_to_accounts: dict[Proxy, list[Account]] = defaultdict(list)
     for account in accounts:
-        if account.proxy not in proxy_to_accounts:
-            proxy_to_accounts[account.proxy] = []
-        proxy_to_accounts[account.proxy].append(account)
-    tasks = [_process_accounts_with_session(accounts, fn)
-             for accounts in proxy_to_accounts.values()]
-    max_tasks = max_tasks or CONFIG.MAX_TASKS
-    await bounded_gather(tasks, max_tasks)
+        proxy = account.proxy or default_proxy
+        proxy_to_accounts[proxy].append(account)
+
+    semaphores: dict[Proxy, asyncio.Semaphore] = {
+        proxy: asyncio.Semaphore(max_tasks_per_proxy) for proxy in proxy_to_accounts
+    }
+    global_semaphore = asyncio.Semaphore(max_tasks)
+
+    async def process_with_limit(account: Account, proxy: Proxy):
+        async with global_semaphore:
+            async with semaphores[proxy]:
+                await process_account_with_proxy(account, fn, proxy=proxy)
+
+    tasks = [
+        asyncio.create_task(process_with_limit(account, proxy))
+        for proxy, accounts_list in proxy_to_accounts.items()
+        for account in accounts_list
+    ]
+
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+
+    # Если какая-то из задач завершилась с ошибкой, прерываем остальные задачи
+    for task in done:
+        exc = task.exception()
+        if isinstance(exc, aiohttp.ContentTypeError):
+            logger.error(f"Вместо ответа пришел HTML. Попробуйте позже")
+        elif isinstance(exc, MemelandAPIError) and exc.code == 429:
+            logger.warning(f"{exc}. Попробуйте позже")
+        elif exc:
+            logger.error(f"Непредвиденная ошибка: {exc}")
+            logger.exception(exc)
+        # Отменяем оставшиеся задачи
+        for p in pending:
+            p.cancel()

@@ -36,7 +36,7 @@ async def print_followers_count(
 async def follow_accounts(accounts: Iterable[Account]):
     accounts_to_print = []
     for account in accounts:
-        follow_count = max(0, 3 - account.followers_count)
+        follow_count = max(0, CONFIG.MINIMUM_FOLLOWERS_COUNT - account.followers_count)
         if follow_count:
             accounts_to_print.append(account)
         random_accounts = sample([a for a in accounts if a != account], k=follow_count)

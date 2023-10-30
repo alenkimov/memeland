@@ -10,8 +10,9 @@ class Config(BaseModel):
     IGNORE_WARNINGS: bool = False
     # DELAY_RANGE: tuple[int, int] = (0, 0)
     MAX_TASKS: int = 5
+    MAX_TASKS_PER_PROXY: int = 5
 
-    PROXY: str | None = None
+    DEFAULT_PROXY: str | None = None  # Должен быть типа Proxy
     CHANGE_PROXY_URL: str | None = None
 
     # CAPTCHA_SERVICE: CaptchaSolvingService
@@ -20,7 +21,7 @@ class Config(BaseModel):
     NFT: str | None = None
 
     MINIMUM_ACCOUNT_AGE_IN_DAYS: int = 30
-    COUNT_OF_AUTH_ATTEMPTS: int = 20
+    MINIMUM_FOLLOWERS_COUNT: int = 3
 
 
 CONFIG = Config(**load_toml(CONFIG_TOML))

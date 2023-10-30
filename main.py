@@ -44,11 +44,7 @@ async def main():
 
     logger.info(f"Total twitter auth tokens: {len(twitter_auth_tokens)}")
 
-    proxy = None
-    if CONFIG.PROXY:
-        proxy = Proxy.from_str(CONFIG.PROXY)
-
-    accounts = extract_or_create_accounts(twitter_auth_tokens, ACCOUNTS_JSON, proxy)
+    accounts = extract_or_create_accounts(twitter_auth_tokens, ACCOUNTS_JSON)
 
     modules = {
         'Exit': None,

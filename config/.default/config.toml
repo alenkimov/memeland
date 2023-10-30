@@ -1,12 +1,13 @@
 # ["INFO", "DEBUG"]
 LOGGING_LEVEL = "DEBUG"
 IGNORE_WARNINGS = false
+MAX_TASKS = 5
+MAX_TASKS_PER_PROXY = 5
 
-# !! Doesn't work
-#MAX_TASKS = 5
+#NFT = ""
 
 # If you use mobile proxy
-#PROXY = ""
+#DEFAULT_PROXY = ""
 
 # !! Doesn't work
 #CHANGE_PROXY_URL = ""
@@ -15,6 +16,3 @@ IGNORE_WARNINGS = false
 # ["anti-captcha.com", "azcaptcha.com", "deathbycaptcha.com", "rucaptcha.com", "2captcha.com"]
 #CAPTCHA_SERVICE = "anti-captcha.com"
 #CAPTCHA_SERVICE_API_KEY = ""
-
-#NFT = ""
-MINIMUM_ACCOUNT_AGE_IN_DAYS = 30
